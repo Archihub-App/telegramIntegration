@@ -9,8 +9,10 @@ from app.api.records.models import RecordUpdate
 from app.api.users.services import has_role
 from bson.objectid import ObjectId
 import json
-import daemon
+import uuid
+from app.utils import DatabaseHandler
 
+mongodb = DatabaseHandler.DatabaseHandler()
 
 load_dotenv()
 
@@ -19,6 +21,7 @@ mongodb = DatabaseHandler.DatabaseHandler()
 USER_FILES_PATH = os.environ.get('USER_FILES_PATH', '')
 WEB_FILES_PATH = os.environ.get('WEB_FILES_PATH', '')
 ORIGINAL_FILES_PATH = os.environ.get('ORIGINAL_FILES_PATH', '')
+TEMPORAL_FILES_PATH = os.environ.get('TEMPORAL_FILES_PATH', '')
 
 state = {}
 
@@ -83,6 +86,8 @@ class ExtendedPluginClass(PluginClass):
 
             try:
                 msg = int(msg)
+                if msg < 1:
+                    raise Exception
             except:
                 await update.message.reply_text('Debes seleccionar un número de la lista')
                 return TYPE
@@ -101,7 +106,73 @@ class ExtendedPluginClass(PluginClass):
                 return TYPE
 
         async def sendig_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-            print(update)
+            form = None
+            if update.message.document or update.message.photo or update.message.video or update.message.audio or update.message.voice:
+                if update.message.document:
+                    file = await update.message.document.get_file()
+                elif update.message.photo:
+                    file = await update.message.photo[-1].get_file()
+                elif update.message.video:
+                    file = await update.message.video.get_file()
+                elif update.message.audio:
+                    file = await update.message.audio.get_file()
+                elif update.message.voice:
+                    file = await update.message.voice.get_file()
+
+                file_id = str(uuid.uuid4())
+                file_ext = file.file_path.split('.')[-1]
+                file_path = os.path.join(TEMPORAL_FILES_PATH, file_id + '.' + file_ext)
+                await file.download_to_drive(file_path)
+                form = []
+                form.append((file_id + '.' + file_ext, open(file_path, 'rb')))
+
+                type = instance.get_plugin_settings()['type']
+                resource_title = "["+state[update.message.from_user.id]['type']+"] " + get_username(update)
+                # verificar si existe el recurso
+                resources = list(mongodb.get_all_records('resources', {'metadata.firstLevel.title': resource_title, 'post_type': type}, fields={'_id': 1}))
+
+                if len(resources) == 0:
+                    payload = {}
+
+                    payload['post_type'] = type
+                    payload['metadata'] = {
+                        'firstLevel': {
+                            'title': resource_title,
+                        }
+                    }
+                    payload['status'] = 'draft'
+                    payload['filesIds'] = [
+                        {
+                            'file': 0,
+                            'filetag': 'Archivos'
+                        }
+                    ]
+
+                    from app.api.resources.services import create
+                    resource = create(payload, 'beta', [{'file': file_path, 'filename': file_id + '.' + file_ext}])
+                else:
+                    resource = mongodb.get_record('resources', {'_id': resources[0]['_id']}, fields={'_id': 1, 'metadata': 1, 'filesObj': 1})
+                    payload = resource
+
+                    payload = {**payload, 
+                               'filesIds': [
+                                      {
+                                        'file': len(payload['filesObj']),
+                                        'filetag': 'Archivos'
+                                      }
+                                 ],
+                                 'post_type': type,
+                                    'status': 'draft',
+                                    'deletedFiles': [],
+                                    'updatedFiles': []
+                    }
+
+                    from app.api.resources.services import update_by_id
+                    resource = update_by_id(str(resource['_id']), payload, 'beta', [{'file': file_path, 'filename': file_id + '.' + file_ext}])
+
+            
+            await update.message.reply_text('Procesando contenido...')
+            await update.message.reply_text('Contenido procesado correctamente, se agregá a la lista '+state[update.message.from_user.id]['type'] + ' del usuario '+str(get_username(update)))
 
         logging.basicConfig(
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -112,10 +183,10 @@ class ExtendedPluginClass(PluginClass):
         application = Application.builder().token(bot_token).build()
 
         conversation = ConversationHandler(
-            entry_points=[CommandHandler("inicio", config_command)],
+            entry_points=[CommandHandler("start", config_command)],
             states={
                 TYPE: [MessageHandler(filters.TEXT, type)],
-                SENDING: [MessageHandler(filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.ANIMATION, sendig_files)],
+                SENDING: [MessageHandler(filters.PHOTO | filters.ATTACHMENT | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.ANIMATION, sendig_files)],
             },
             fallbacks=[
                 CommandHandler("config", config_command),
