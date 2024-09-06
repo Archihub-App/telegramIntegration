@@ -49,7 +49,12 @@ class ExtendedPluginClass(PluginClass):
         instance = ExtendedPluginClass('telegramIntegration','', **plugin_info)
 
         def get_username(update):
-            return update.message.from_user.first_name + ' ' + update.message.from_user.last_name + ' [' + str(update.message.from_user.id) + ']'
+            if update.message.from_user.last_name is None:
+                return update.message.from_user.first_name + ' [' + str(update.message.from_user.id) + ']'
+            elif update.message.from_user.first_name is None:
+                return update.message.from_user.last_name + ' [' + str(update.message.from_user.id) + ']'
+            else:
+                return update.message.from_user.first_name + ' ' + update.message.from_user.last_name + ' [' + str(update.message.from_user.id) + ']'
 
         async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             print(get_username(update))
