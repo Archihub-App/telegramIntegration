@@ -31,6 +31,7 @@ class ExtendedPluginClass(PluginClass):
     def __init__(self, path, import_name, name, description, version, author, type, settings):
         super().__init__(path, __file__, import_name, name, description, version, author, type, settings)
         if not os.environ.get('CELERY_WORKER'):
+            print("No es un worker")
             self.activate_settings()
 
     @shared_task(name='telegramIntegration.bot', queue='telegram')
@@ -205,15 +206,17 @@ class ExtendedPluginClass(PluginClass):
         return 'ok'
 
     def activate_settings(self):
-        current = self.get_plugin_settings()
-        if current is None:
-            return
-        
-        if 'bot_token' in current:
-            if current['bot_token'] != '':
-                self.run_telegram_bot.delay(current['bot_token'])
-        
-        
+        if not os.environ.get('CELERY_WORKER'):
+            current = self.get_plugin_settings()
+            if current is None:
+                return
+            
+            if 'bot_token' in current:
+                if current['bot_token'] != '':
+                    has_task = self.has_task('telegramIntegration.bot')
+                    if not has_task:
+                        task = self.run_telegram_bot.delay(current['bot_token'])
+                        self.add_task_to_user(task.id, 'telegramIntegration.bot','system', 'msg')
 
     def add_routes(self):
         @self.route('/bulk', methods=['POST'])
