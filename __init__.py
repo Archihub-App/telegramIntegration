@@ -34,7 +34,7 @@ class ExtendedPluginClass(PluginClass):
             print("No es un worker")
             self.activate_settings()
 
-    @shared_task(name='telegramIntegration.bot', queue='telegram')
+    @shared_task(ignore_result=False, name='telegramIntegration.bot', queue='telegram')
     def run_telegram_bot(bot_token):
         import logging
         from telegram import ForceReply, Update, ReplyKeyboardRemove
@@ -213,10 +213,10 @@ class ExtendedPluginClass(PluginClass):
             
             if 'bot_token' in current:
                 if current['bot_token'] != '':
-                    has_task = self.has_task('telegramIntegration.bot')
+                    has_task = self.has_task('telegramIntegration.bot', 'automatic')
                     if not has_task:
                         task = self.run_telegram_bot.delay(current['bot_token'])
-                        self.add_task_to_user(task.id, 'telegramIntegration.bot','system', 'msg')
+                        self.add_task_to_user(task.id, 'telegramIntegration.bot','automatic', 'msg')
 
     def add_routes(self):
         @self.route('/bulk', methods=['POST'])
@@ -270,7 +270,6 @@ class ExtendedPluginClass(PluginClass):
                     types = tuple(types)[0]
 
                 current = self.get_plugin_settings()
-                print(current)
 
                 resp = {**self.settings}
                 resp = json.loads(json.dumps(resp))
