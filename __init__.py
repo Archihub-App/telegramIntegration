@@ -203,6 +203,9 @@ class ExtendedPluginClass(PluginClass):
         application.add_handler(conversation)
         application.run_polling(drop_pending_updates=True)
 
+        mongodb.get_record('tasks', {'name': 'telegramIntegration.bot', 'status': 'pending'}, fields={'_id': 1})
+        
+
         return 'ok'
 
     def activate_settings(self):
