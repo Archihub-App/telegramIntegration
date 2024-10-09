@@ -11,6 +11,7 @@ from bson.objectid import ObjectId
 import json
 import uuid
 from app.utils import DatabaseHandler
+from datetime import datetime
 
 mongodb = DatabaseHandler.DatabaseHandler()
 
@@ -64,20 +65,50 @@ class ExtendedPluginClass(PluginClass):
             else:
                 await update.message.reply_text("Para agregar contenido al taller seleccionado ["+state[update.message.from_user.id]['type']+"], envía el material que deseas agregar.")
 
+        async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            from app.api.lists.services import get_all as get_all_lists
+            list = instance.get_plugin_settings()['list']
+            from app.api.lists.services import get_by_id
+            list = get_by_id(list)
+            options = list['options']
+            welcome_text = "¡Hola y bienvenido/a/e! 🎉\n\n"
+            welcome_text += "Gracias por participar en este ejercicio colaborativo para la sistematización de información en eventos en vivo del Museo Afro de Colombia. 🙌\n"
+            welcome_text += "Nuestro objetivo es capturar de manera ágil y organizada citas, fotografías, videos y audios que surgen durante estos encuentros. Todo el contenido que compartas será clave para documentar y preservar la memoria de los eventos, así como para dar visibilidad a las voces y experiencias de las comunidades afro.\n\n"
+            welcome_text += "¿Cómo puedes participar? Es muy sencillo:\n"
+            welcome_text += "- Envía citas o comentarios relevantes del evento en forma de texto 📝.\n"
+            welcome_text += "- Comparte fotos, videos o audios que consideres importantes 🎥📸🎙️.\n\n"
+            welcome_text += "Recuerda que este espacio es para contribuir al proceso de construcción colectiva, ¡así que tus aportes son muy valiosos! 💬"
+
+            await update.message.reply_text(welcome_text, reply_markup=ReplyKeyboardRemove())
+
+            reply_text = "Antes de empezar, selecciona el taller al que deseas agregar contenido:\n\n"
+            step = 0
+            for option in options:
+                step += 1
+                reply_text += f"{step} - {option['term']}\n"
+
+            reply_text += "\nSi en algún momento deseas volver a configurar o cambiar el taller, solo escribe /configurar y podrás realizar los ajustes que necesites. 🔄\n"
+            await update.message.reply_text(reply_text, reply_markup=ReplyKeyboardRemove())
+
+            final_text = "Cada aporte que realices será parte de la memoria colectiva de ese taller. ¡Gracias por tu colaboración! 🎨✨"
+            await update.message.reply_text(final_text, reply_markup=ReplyKeyboardRemove())
+
+            return TYPE
+
         async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-            print(get_username(update))
             from app.api.lists.services import get_all as get_all_lists
             list = instance.get_plugin_settings()['list']
             from app.api.lists.services import get_by_id
             list = get_by_id(list)
             options = list['options']
 
-            reply_text = "Selecciona el taller al que deseas agregar contenido\n\n"
+            reply_text = "Selecciona el taller al que deseas agregar contenido:\n\n"
             step = 0
             for option in options:
                 step += 1
                 reply_text += f"{step} - {option['term']}\n"
 
+            reply_text += "\nSi en algún momento deseas volver a configurar o cambiar el taller, solo escribe /configurar y podrás realizar los ajustes que necesites. 🔄\n"
             await update.message.reply_text(reply_text, reply_markup=ReplyKeyboardRemove())
 
             return TYPE
@@ -95,7 +126,7 @@ class ExtendedPluginClass(PluginClass):
                 if msg < 1:
                     raise Exception
             except:
-                await update.message.reply_text('Debes seleccionar un número de la lista')
+                await update.message.reply_text('Debes seleccionar un número de la lista para continuar. Esto nos ayudará a organizar correctamente el contenido que compartas. 😊')
                 return TYPE
             
             try:
@@ -104,11 +135,11 @@ class ExtendedPluginClass(PluginClass):
                     'id': options[msg - 1]['id']
                 }
 
-                await update.message.reply_text('Envía el contenido que deseas agregar al taller')
+                await update.message.reply_text('Envía el contenido que deseas agregar al taller 📝📸🎥. Ya sea un texto, foto, video o audio, todo lo que compartas se organizará automáticamente, así que no tendrás que preocuparte de nada más. ¡Solo envía tu aporte y yo me encargo del resto! 🙌\n\n¡Gracias por contribuir a la documentación del evento! 🌍✨')
 
                 return SENDING
             except:
-                await update.message.reply_text('Debes seleccionar un número de la lista')
+                await update.message.reply_text('Debes seleccionar un número de la lista para continuar. Esto nos ayudará a organizar correctamente el contenido que compartas. 😊')
                 return TYPE
 
         async def sendig_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -178,7 +209,61 @@ class ExtendedPluginClass(PluginClass):
 
             
             await update.message.reply_text('Procesando contenido...')
-            await update.message.reply_text('Contenido procesado correctamente, se agregá a la lista '+state[update.message.from_user.id]['type'] + ' del usuario '+str(get_username(update)))
+            await update.message.reply_text('Contenido procesado correctamente, se agrega a la lista '+state[update.message.from_user.id]['type'] + ' del usuario '+str(get_username(update)))
+
+
+        async def sendig_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+            form = None
+            if update.message.text and not update.message.text.startswith('/'):
+                text = update.message.text
+
+                type = instance.get_plugin_settings()['type']
+                resource_title = "["+state[update.message.from_user.id]['type']+"] " + get_username(update)
+                # verificar si existe el recurso
+                resources = list(mongodb.get_all_records('resources', {'metadata.firstLevel.title': resource_title, 'post_type': type}, fields={'_id': 1}))
+
+                if len(resources) == 0:
+                    payload = {}
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    quote = '- ' + current_time + ' [ ' + text + ' ]\n'
+
+                    payload['post_type'] = type
+                    payload['metadata'] = {
+                        'firstLevel': {
+                            'title': resource_title,
+                            'quotes': quote
+                        }
+                    }
+                    payload['status'] = 'draft'
+                    payload['filesIds'] = []
+
+                    from app.api.resources.services import create
+                    resource = create(payload, 'beta', [])
+                    await update.message.reply_text('Contenido procesado correctamente, se agrega a la lista '+state[update.message.from_user.id]['type'] + ' del usuario '+str(get_username(update)))
+                else:
+                    resource = mongodb.get_record('resources', {'_id': resources[0]['_id']}, fields={'_id': 1, 'metadata': 1, 'filesObj': 1})
+                    payload = resource
+
+                    if 'quotes' not in payload['metadata']['firstLevel']:
+                        payload['metadata']['firstLevel']['quotes'] = ''
+
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    quote = payload['metadata']['firstLevel']['quotes'] + '- ' + current_time + ' [ ' + text + ' ]\n'
+                    payload['metadata']['firstLevel']['quotes'] = quote
+
+                    payload = {**payload, 
+                               'filesIds': [],
+                                 'post_type': type,
+                                    'status': 'draft',
+                                    'deletedFiles': [],
+                                    'updatedFiles': []
+                    }
+
+                    from app.api.resources.services import update_by_id
+                    resource = update_by_id(str(resource['_id']), payload, 'beta', [])
+                    await update.message.reply_text('Contenido procesado correctamente, se agrega a la lista '+state[update.message.from_user.id]['type'] + ' del usuario '+str(get_username(update)))
+
+                
 
         logging.basicConfig(
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -189,13 +274,13 @@ class ExtendedPluginClass(PluginClass):
         application = Application.builder().token(bot_token).build()
 
         conversation = ConversationHandler(
-            entry_points=[CommandHandler("start", config_command)],
+            entry_points=[CommandHandler("start", start_command)],
             states={
                 TYPE: [MessageHandler(filters.TEXT, type)],
-                SENDING: [MessageHandler(filters.PHOTO | filters.ATTACHMENT | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.ANIMATION, sendig_files)],
+                SENDING: [MessageHandler(filters.PHOTO | filters.ATTACHMENT | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.ANIMATION, sendig_files),MessageHandler(filters.TEXT & ~filters.COMMAND, sendig_text)],
             },
             fallbacks=[
-                CommandHandler("config", config_command),
+                CommandHandler("configurar", config_command),
                 CommandHandler("ayuda", help_command),
             ],
         )
@@ -203,9 +288,8 @@ class ExtendedPluginClass(PluginClass):
         application.add_handler(conversation)
         application.run_polling(drop_pending_updates=True)
 
-        mongodb.get_record('tasks', {'name': 'telegramIntegration.bot', 'status': 'pending'}, fields={'_id': 1})
+        mongodb.delete_records('tasks', {'name': 'telegramIntegration.bot', 'status': 'pending'})
         
-
         return 'ok'
 
     def activate_settings(self):
@@ -328,7 +412,7 @@ plugin_info = {
     'name': 'Telegram BOT',
     'description': 'Plugin para integración con bots de Telegram',
     'version': '0.1',
-    'author': 'Bitsol',
+    'author': 'Museo Afro',
     'type': ['settings'],
     'settings': {
         'settings': [
